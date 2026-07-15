@@ -5,5 +5,7 @@
 
 
 (defpackage #:smrg
-  (:use #:cl #:ccom4 #:ccoffice #:achar #:cl-ppcre #:wax)
+  (:use #:cl #:ccom4 #:ccoffice #:achar #:cl-ppcre #:wax #:str #:local-time)
+  (:shadowing-import-from #:str #:split)
+  (:shadowing-import-from #:local-time #:today #:date #:timestamp)
   (:export #:run))
