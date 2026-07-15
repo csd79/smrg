@@ -90,14 +90,6 @@
      :ignore-error-status t
      :external-format *cmd-codepage*)))
 
-(defun connect-to-sharepoint-doclibrary (drive-letter path username password)
-  (run-it (format nil "net use ~a: \"~a\"  /user:~a \"~a\" /persistent:no"
-                  (string-upcase drive-letter)
-                  path username password)))
-
-(defun disconnect-drive (drive-letter)
-  (run-it (format nil "net use ~a: /delete /y" (string-upcase drive-letter))))
-
 (defun short-tk-name (tk-name)
   (unwords (list (first (words tk-name)) "TK")))
 
@@ -112,6 +104,84 @@
      nil
      (timestamp+ date day-offset :day)
      :format '((:year 4) "." (:month 2) "." (:day 2) "."))))
+
+
+;;; ---------------------------------------------------------------
+;;; SharePoint connection
+
+
+(defun drive-connected-p (letter)
+  (probe-file (concatenate 'string (string-upcase letter) ":\\")))
+
+(defun connect-to-sharepoint-doclibrary (drive-letter path username password)
+  (if (drive-connected-p drive-letter)
+    ;; If DRIVE-LETTER is taken, display message
+    (wg-msg
+     "Hiba a dokumentumtár csatlakoztatásakor:~2%A megadott betûjel (~a:) már foglalt, válasszon másikat!"
+     (string-upcase drive-letter))
+    ;; Otherwise, initiate connection and save command line message
+    (let ((message (run-it (format nil "net use ~a: \"~a\"  /user:~a \"~a\" /persistent:no"
+                                   (string-upcase drive-letter)
+                                   path username password))))
+      (unless (drive-connected-p drive-letter)
+        ;; If unsuccessfull, display cmd message
+        (wg-msg "Hiba a dokumentumtár csatlakoztatásakor:~2%~a" message)))))
+
+(defun disconnect-drive (drive-letter)
+  (if (drive-connected-p drive-letter)
+    (run-it (format nil "net use ~a: /delete /y" (string-upcase drive-letter)))
+    (wg-msg
+     "Hiba a dokumentumtár csatlakozás bontásakor:~2%A megadott betûjellel (~a:) nincs meghajtó csatlakoztatva."
+     (string-upcase drive-letter))))
+
+(defmacro with-sharepoint-doclibrary-connected ((drive-letter path username password) &body body)
+  (let ((drive* (gensym)) (path* (gensym)) (user* (gensym)) (pw* (gensym)))
+    `(let ((,drive* ,drive-letter)
+           (,path,* ,path)
+           (,user*  ,username)
+           (,pw*    ,password))
+       (unwind-protect
+           (progn
+             (connect-to-sharepoint-doclibrary ,drive* ,path* ,user* ,pw*)
+             ,@body)
+         (disconnect-drive ,drive*)))))
+
+;(defmethod execute-with-credentials-present ((obj wax-app) fn)
+  
+
+#|(defmacro with-sharepoint-connection ((obj) &body body)
+  (let ((obj/ (gensym)))
+    `(let ((,obj/ ,obj))
+       (flet ((bbody () ,@body))
+         (if (and (string/= (get-state ,obj/ :username) "")
+                  (get-state ,obj/ :password))
+           ;; If username is password is already entered, execute body
+           (bbody)
+           ;; If not, show a password requester
+           (wg-login "Jelszó?"
+                     #'(lambda (username password)
+                         (if (and username password)
+                           (progn
+                             ;; If both username and pw is entered, store them in the right places ...
+                             (setf (get-state ,obj/ :username) username
+                                   (get-state ,obj/ :password) password)
+                             ;; ... connect to SP
+                             (connect-to-sharepoint-doclibrary
+                              (get-state ,obj/ :drive)
+                              (get-state ,obj/ :workdir)
+                              (get-state ,obj/ :username)
+                              (get-state ,obj/ :password))
+                             ;; ... execute body
+                             (bbody)
+                             ;; ... and finally disconnect SP.
+                             (disconnect-drive (get-state ,obj/ :drive)))
+                           ;; If one is missing, display message
+                           (apply #'wg-msg (cond ((not username)
+                                                  (list "A megadott felhasználónév (~a) érvénytelen!" username))
+                                                 ((not password)
+                                                  (list "A megadott jelszó érvénytelen!"))))))))))))
+                       
+       |#
 
 
 ;;; ---------------------------------------------------------------
@@ -229,117 +299,123 @@
     (print (foreign-namestrings obj "Balassagyarmati"))
     ))
     
+;;; ---------------------------------------------------------------
+;;; SP connection
+
+
+(defun connect-test ()
+  (connect-to-sharepoint-doclibrary
+   *doclib-drive*
+   "https://sps.kk.gov.hu/org/jszf/Megosztott dokumentumok/Személyügyi Osztály/smrg teszt"
+   "cselovszkid" "GeorgeLucas77?")
+  (print (run-it (format nil "dir ~a:" (string-upcase *doclib-drive*))))
+  (disconnect-drive *doclib-drive*))
+
+
+
 
 ;;; ---------------------------------------------------------------
 ;;; Main
 
 
-(defparameter *pkeys* '(:workdir :tkdirs :template :drive :archive :result))
+(defparameter *pkeys* '(:username :workdir :tkdirs :template :drive :archive :result))
 
 
 (defun worker (obj command)
+  (setf (get-state obj :password) nil)
   (wg-msg "~a" command))
 
 
 (defun init-app ()
   (make-instance 'wax-app
-   :state `(:workdir    ""
+   :state `(:username   nil
+            :password   nil
+            :workdir    ""
             :tkdirs     ""
             :template   ""
             :drive      "X"
             :archive    ""
             :result     ""
             :merge-date ""
-            :swap-date  ""
-            )
+            :swap-date  "")
    :execute-fn #'worker))
 
 
-(defun start ()
+(defun smrg-start ()
   (in-package :smrg)
-
   (let ((obj (init-app)))
-
-    ;; Initialize app state
+    ;; Initialize app state  -------------------------------------------
     (load-state obj :keys *pkeys*)
-
-    ;; GUI
-    (wg-window "Rendkívüli esemény értesítõk összegzése" 80
-
+    ;; GUI  ------------------------------------------------------------
+    (wg-window "Rendkívüli esemény értesítõk összegzése" 400 80
       "" ""
-
-      " Csatolt meghajtó betûjele"
+      " KLIK felhasználónév" ;  ----------------------------------
+      (wg-text-input 
+       #'(lambda (text &rest rest)
+           (declare (ignore rest))
+           (setf (get-state obj :username) text))
+       (get-state obj :username))
+      " Csatolt meghajtó betûjele" ;  ----------------------------------
       (wg-text-input 
        #'(lambda (text &rest rest)
            (declare (ignore rest))
            (setf (get-state obj :drive) text))
        (get-state obj :drive))
-
-      " Munkakönyvtár a dokumentumtárban"
+      " Munkakönyvtár a dokumentumtárban" ;  ---------------------------
       (wg-text-input 
        #'(lambda (text &rest rest)
            (declare (ignore rest))
            (setf (get-state obj :workdir) text))
        (get-state obj :workdir))
-
-      " TK könyvtárak"
+      " TK könyvtárak" ;  ----------------------------------------------
       (wg-text-input 
        #'(lambda (text &rest rest)
            (declare (ignore rest))
            (setf (get-state obj :tkdirs) text))
        (get-state obj :tkdirs))
-
-      " Archív alkönyvtárak"
+      " Archív alkönyvtárak" ;  ----------------------------------------
       (wg-text-input 
        #'(lambda (text &rest rest)
            (declare (ignore rest))
            (setf (get-state obj :archive) text))
        (get-state obj :archive))
-
-      " Táblázat sablon"
+      " Táblázat sablon" ;  --------------------------------------------
       (wg-text-input 
        #'(lambda (text &rest rest)
            (declare (ignore rest))
            (setf (get-state obj :template) text))
        (get-state obj :template))
-
-      " Eredmény helye"
+      " Eredmény helye" ;  ---------------------------------------------
       (wg-text-input 
        #'(lambda (text &rest rest)
            (declare (ignore rest))
            (setf (get-state obj :result) text))
        (get-state obj :result))
-
       ""
-      (wg-button "Összeolvasás"
+      (wg-button "Összeolvasás" ;  -------------------------------------
         #'(lambda (interface)
             (declare (ignore interface))
             (save-state obj :keys *pkeys*)
             (wax-execute obj t :merge)))
-
       "" ""
-      
-      " Feldolgozott állományok dátuma"
+      " Feldolgozott állományok dátuma" ;  -----------------------------
       (wg-text-input 
        #'(lambda (text &rest rest)
            (declare (ignore rest))
            (setf (get-state obj :template) text))
        (date-string))
-
-      " Következõ napi dátum"
+      " Következõ napi dátum" ;  ---------------------------------------
       (wg-text-input 
        #'(lambda (text &rest rest)
            (declare (ignore rest))
            (setf (get-state obj :template) text))
        (date-string :day-offset 1))
-      
       ""
-      (wg-button "Fájlok cseréje"
+      (wg-button "Fájlok cseréje" ;  -----------------------------------
         #'(lambda (interface)
             (declare (ignore interface))
             (save-state obj :keys *pkeys*)
             (wax-execute obj t :swap)))
-
       "" "")))
 
 
@@ -370,28 +446,8 @@
 ;;; Sandbox
 
 
-(defparameter *fi1* "https://sps.kk.gov.hu/org/jszf/Megosztott dokumentumok/Személyügyi Osztály/smrg teszt/TK 1/TK1.xlsx")
-
-;(defparameter *fi2* "")
-;(defparameter *fi3* "")
 
 
-(defparameter *doclib-drive* "x")
-
-
-(defun connect-test ()
-  (connect-to-sharepoint-doclibrary
-   *doclib-drive*
-   "https://sps.kk.gov.hu/org/jszf/Megosztott dokumentumok/Személyügyi Osztály/smrg teszt"
-   "cselovszkid" "GeorgeLucas77?")
-  (print (run-it (format nil "dir ~a:" (string-upcase *doclib-drive*))))
-  (disconnect-drive *doclib-drive*))
-
-
-(defun test (file)
-  (with-ccom-context
-    (with-workbook (:wbook wbook :open file :wsvars (ws1) :save nil)
-      (print (xcell ws1 1 1)))))
 
 
 
