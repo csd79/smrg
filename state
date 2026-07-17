@@ -1,1 +1,1 @@
-(:ARCHIVE "Archív" :DRIVE "X" :TEMPLATE "bejelentések.xlsx" :TKDIRS "TK-k" :WORKDIR "https://sps.kk.gov.hu/org/jszf/Megosztott dokumentumok/Személyügyi Osztály/smrg teszt" :RESULT "c:\\Users\\cselovszkid\\Desktop\\")
+(:ARCHIVE "Archív" :DRIVE "X" :TEMPLATE "bejelentések.xlsx" :TKDIRS "TK-k" :WORKDIR "\\\\sps.kk.gov.hu@SSL\\DavWWWRoot\\org\\jszf\\Megosztott dokumentumok\\Személyügyi Osztály\\smrg teszt" :RESULT "c:\\Users\\cselovszkid\\Desktop\\" :USERNAME "cselovszkid")

@@ -146,36 +146,33 @@
 ;;; wax-app readers
 
 
-(defmethod workdir-namestring ((obj wax-app))
+(defmethod subdir-namestring ((obj wax-app))
   (concatenate 'string
-   (get-state obj :drive)
-   ":"
-   (ensure-prefix "\\"
-    (ensure-suffix "\\" (get-state obj :workdir)))))
+   (ensure-suffix "\\" (concatenate 'string (get-state obj :drive) ":"))
+   ))
 
 (defmethod template-namestring ((obj wax-app))
   (concatenate 'string
-   (workdir-namestring obj)
+   (subdir-namestring obj)
    (get-state obj :template)))
 
 (defmethod tk-dir-namestring ((obj wax-app) tk-name)
   (concatenate 'string
-   (workdir-namestring obj)
-   (get-state obj :tkdirs)
+   (subdir-namestring obj)
+   (ensure-suffix "\\" (get-state obj :tkdirs))
    (ensure-suffix "\\" (short-tk-name tk-name))))
 
 (defmethod tk-archive-dir-namestring ((obj wax-app) tk-name)
-  (ensure-suffix "\\"
-   (concatenate 'string
-    (tk-dir-namestring obj tk-name)
-    (get-state obj :archive))))
+  (concatenate 'string
+   (tk-dir-namestring obj tk-name)
+   (ensure-suffix "\\" (get-state obj :archive))))
 
 
 ;;; ---------------------------------------------------------------
 ;;; Filename utils
 
 
-(defmethod all-archiveables ((obj wax-app) tk-name)
+(defmethod tk-workbooks ((obj wax-app) tk-name)
   (mapcar #'namestring
           (uiop:directory-files
            (tk-dir-namestring obj tk-name) "*.xlsx")))
@@ -186,7 +183,7 @@
 (defun namestring-with-valid-date-p (filename exclusive-date)
   (not (search exclusive-date filename)))
 
-(defun valid-archiveables (all-sources tk-name exclusive-date)
+(defun tk-expired (all-sources tk-name exclusive-date)
   (remove-if #'(lambda (namestring)
                  (let ((filename (pathname-name namestring)))
                    (not (and (familiar-namestring-p filename tk-name)
@@ -198,101 +195,52 @@
 ;;; Filename interface
 
 
-(defmethod mergeable-namestring ((obj wax-app) tk-name present-date)
+(defmethod tk-pending-namestring ((obj wax-app) tk-name present-date
+                                  &key (only-existing nil)
+                                       (only-on-existing-path t))
   "Namestring of the file for given TK-NAME and PRESENT-DATE, or NIL if it doesn't exist."
-  (let ((namestring
-         (concatenate 'string
-          (tk-dir-namestring obj tk-name)
-          (date-string :date present-date) " "
-          (short-tk-name tk-name)
-          " bejelentések.xlsx")))
-    (and (probe-file namestring)
-         namestring)))
+  (let* ((path (tk-dir-namestring obj tk-name))
+         (namestring
+          (concatenate 'string
+            path
+            (date-string :date present-date) " "
+            (short-tk-name tk-name)
+            " bejelentések.xlsx")))
+    (and
+     ;; Existing file?
+     (if only-existing
+       (probe-file namestring)
+       t)
+     ;; On existing path?
+     (if only-on-existing-path
+       (probe-file path)
+       t)
+     namestring)))
 
-(defmethod archiveable-namestrings ((obj wax-app) tk-name exclusive-date)
+(defmethod tk-expired-namestrings ((obj wax-app) tk-name exclusive-date)
   "A list of namestrings in TK-NAME's directory whose date isn't EXCLUSIVE-DATE."
-  (let ((all-sources (all-archiveables obj tk-name)))
-    (valid-archiveables all-sources tk-name exclusive-date)))
+  (let ((all-sources (tk-workbooks obj tk-name)))
+    (tk-expired all-sources tk-name exclusive-date)))
 
-(defmethod archive-namestrings ((obj wax-app) archiveables tk-name)
-  "A list of destination namestrings when moving ARCHIVEABLES."
+(defmethod tk-archived-namestrings ((obj wax-app) expired tk-name)
+  "A list of destination namestrings when moving EXPIRED."
   (mapcar #'(lambda (source-file)
               (namestring (make-pathname
                            :name (pathname-name source-file)
                            :type (pathname-type source-file)
                            :defaults (tk-archive-dir-namestring obj tk-name))))
-          archiveables))
+          expired))
 
-(defmethod foreign-namestrings ((obj wax-app) tk-name)
+(defmethod tk-foreign-namestrings ((obj wax-app) tk-name)
   "A list of nemaestrings in TK-NAME's directory who belong to another TK."
   (remove-if #'(lambda (namestring)
                  (let ((filename (pathname-name namestring)))
                    (familiar-namestring-p filename tk-name)))
-             (all-archiveables obj tk-name)))
+             (tk-workbooks obj tk-name)))
 
 
-;;; ---------------------------------------------------------------
-;;; Swap files
-
-
-
-
-
-(defun tt ()
-  (let ((obj (make-instance 'wax-app
-              :state `(:workdir  "Users\\cselovszkid\\Downloads\\smrg-teszt\\"
-                       :tkdirs   "TK-k\\"
-                       :template "bejelentések.xlsx"
-                       :drive    "C"
-                       :archive  "Archív\\"))))
-    (print (workdir-namestring obj))
-    (print (template-namestring obj))
-    (print (tk-dir-namestring obj "Közép-Pesti Tank.Közp"))
-    (print (tk-archive-dir-namestring obj "Veszprémi TK"))
-    (print (mergeable-namestring obj "Miskolci Tankerületi Központ" "2026.07.14"))
-    (print (mergeable-namestring obj "Balassagyarmati Tankerületi Központ" "2026.07.14"))
-    (let ((archiveables (archiveable-namestrings obj "Balassagyarmati" "2026.07.15")))
-      (pprint archiveables)
-      (pprint (archive-namestrings obj archiveables "Balassagyarmati TK")))
-    (print (foreign-namestrings obj "Balassagyarmati"))
-    ))
-    
 ;;; ---------------------------------------------------------------
 ;;; SP connection
-
-
-(defun connect-test ()
-  (connect-to-sharepoint-doclibrary
-   "x"
-   "\\\\sps.kk.gov.hu@SSL\\DavWWWRoot\\org\\jszf\\Megosztott dokumentumok\\Személyügyi Osztály\\smrg teszt"
-   "cselovszkid" "GeorgeLucas77?")
-;  (print (run-it (format nil "dir ~a:" (string-upcase *doclib-drive*))))
-;  (disconnect-drive *doclib-drive*)
-  )
-
-
-
-
-;;; ---------------------------------------------------------------
-;;; Main
-
-
-(defparameter *pkeys* '(:username :workdir :tkdirs :template :drive :archive :result))
-
-
-(defun init-app ()
-  (make-instance 'wax-app
-   :state `(:first-run  t
-            :username   nil
-            :workdir    ""
-            :tkdirs     ""
-            :template   ""
-            :drive      "X"
-            :archive    ""
-            :result     ""
-            :merge-date ""
-            :swap-date  "")
-   :execute-fn #'worker))
 
 
 (defmethod connection-ensured-p ((obj wax-app))
@@ -348,13 +296,152 @@ csatlakozás bontása" drive-letter))
           (return-from ensured nil))
         ;; Correct path is connected, return T.
         (return-from ensured t))))))
-      
+
+
+(defun et ()
+  (connection-ensured-p
+   (make-instance 'wax-app :state
+    `(:first-run  t
+      :username   "cselovszkid"
+      :drive      "x"
+      :workdir    "\\\\sps.kk.gov.hu@SSL\\DavWWWRoot\\org\\jszf\\Megosztott dokumentumok\\Személyügyi Osztály\\smrg teszt"))))
+
+
+(defun connect-test ()
+  (connect-to-sharepoint-doclibrary
+   "x"
+   "\\\\sps.kk.gov.hu@SSL\\DavWWWRoot\\org\\jszf\\Megosztott dokumentumok\\Személyügyi Osztály\\smrg teszt"
+   "cselovszkid" "GeorgeLucas77?")
+;  (print (run-it (format nil "dir ~a:" (string-upcase *doclib-drive*))))
+;  (disconnect-drive *doclib-drive*)
+  )
+
+
+;;; ---------------------------------------------------------------
+;;; Merge files
+
+
+;; Hogyan derül ki, hogy a fájl amit éppen hozzáadunk az összegzéshez, meg van nyitva egy TK-s kollégánál?
+
+
+;;; ---------------------------------------------------------------
+;;; Archive files
+
+
+(defun paste-column (wsheet column start-row end-row value)
+  (let ((height (1+ (- end-row start-row))))
+    (setf (xrange wsheet column start-row column end-row)
+          (make-array `(,height 1) :initial-element value))))
+
+
+;; Hogyan derül ki, hogy a fájl amit éppen archiválunk, meg van nyitva egy TK-s kollégánál?
+;; Ha nyitva van, a RENAME-FILE simán átteszi az Archive mappába. Amikor a szerkesztõ fél
+;; ráment, az Excel kiírja hogy a megadott elérési út nem tallható, és felajánlja egy
+;; másolat mentését!
+(defmethod archive-and-refresh-files ((obj wax-app))
+  (with-progress-new ("Korábbi táblázatok archiválása" obj :limit (length *tk-list*))
+    (catch 'archive-exit
+      (let ((swap-date (get-state obj :swap-date))
+            (temp-file (new-temp-filename "xlsx")))
+        ;; Prepare fresh template file.
+        (uiop:copy-file (template-namestring obj) temp-file)
+        (with-workbook (:wbook wbook :open temp-file :wsvars (wsheet))
+          ;; Paste swap dates
+          (paste-column wsheet 1 2 51 swap-date)
+          ;; Iterate of TKs.
+          (loop for tk in *tk-list*
+                for short-tk    = (short-tk-name tk)
+                for tk-expired  = (tk-expired-namestrings obj short-tk swap-date)
+                for tk-archived = (tk-archived-namestrings obj tk-expired short-tk) doing
+                (disp obj "~%~a~%Archivált fájlok:~%" (astring-upcase tk))
+                (if tk-expired
+                  ;; If there are files to archive, do them and display their names.
+                  (loop for src in tk-expired
+                        for dst in tk-archived doing
+                        (disp obj "~a.xlsx~%" (pathname-name src))
+                        (rename-file src dst))
+                  ;; Otherwise, display <none>.
+                  (disp obj "<semmi>~%"))
+                ;; Create fresh file.
+                (let ((fresh-file (tk-pending-namestring obj short-tk swap-date)))
+                  (if fresh-file
+                    ;; TK path exists, go ahead
+                    (progn
+                      ;; Edit it in temp dir.
+                      (paste-column wsheet 2 2 51 tk)
+                      (!'save wbook)
+                      (uiop:copy-file temp-file fresh-file)
+                      (disp obj "Következõ napi állomány: ~a~%" fresh-file))
+                    ;; TK path doesn't exist, display <none>.
+                    (disp obj "TK mappa hiányzik!~%")))))
+        ;; Delete temporary file.
+        (delete-file temp-file)))))
+
+
+(defun st ()
+  (archive-and-refresh-files
+   (make-instance 'wax-app
+   :state `(
+            ;:first-run  t
+            ;:username   nil
+            ;:workdir    ""
+            :tkdirs     "TK-k"
+            :template   "bejelentések.xlsx"
+            :drive      "x"
+            :archive    "Archív"
+            ;:result     ""
+            :merge-date "2026.07.14."
+            :swap-date  "2026.07.15."
+            ))))
+
+(defun tt ()
+  (let ((obj (make-instance 'wax-app
+              :state `(:workdir  "Users\\cselovszkid\\Downloads\\smrg-teszt\\"
+                       :tkdirs   "TK-k\\"
+                       :template "bejelentések.xlsx"
+                       :drive    "c"
+                       :archive  "Archív\\"))))
+    (print (subdir-namestring obj))
+    (print (template-namestring obj))
+    (print (tk-dir-namestring obj "Közép-Pesti Tank.Közp"))
+    (print (tk-archive-dir-namestring obj "Veszprémi TK"))
+    (print (tk-pending-namestring obj "Miskolci Tankerületi Központ" "2026.07.14"))
+    (print (tk-pending-namestring obj "Balassagyarmati Tankerületi Központ" "2026.07.14"))
+    (let ((expired (tk-expired-namestrings obj "Balassagyarmati" "2026.07.15")))
+      (pprint expired)
+      (pprint (tk-archived-namestrings obj expired "Balassagyarmati TK")))
+    (print (tk-foreign-namestrings obj "Balassagyarmati"))
+    ))
+
+
+
+;;; ---------------------------------------------------------------
+;;; Main
+
+
+(defparameter *pkeys* '(:username :workdir :tkdirs :template :drive :archive :result))
+
+
+(defun init-app ()
+  (make-instance 'wax-app
+   :state `(:first-run  t
+            :username   nil
+            :workdir    ""
+            :tkdirs     ""
+            :template   ""
+            :drive      "X"
+            :archive    ""
+            :result     ""
+            :merge-date ""
+            :swap-date  "")
+   :execute-fn #'worker))
+
 
 (defun worker (obj command)
-  (wg-msg "~a" command)
   (when (connection-ensured-p obj)
-    
-  )
+    (case command
+      (:merge   (wg-msg "Merge!"))
+      (:archive (archive-and-refresh-files obj)))))
 
 
 (defun smrg-start ()
@@ -445,40 +532,12 @@ csatlakozás bontása" drive-letter))
         #'(lambda (interface)
             (declare (ignore interface))
             (save-state obj :keys *pkeys*)
-            (wax-execute obj t :swap)))
+            (wax-execute obj t :archive)))
       "" "")))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 ;;; ---------------------------------------------------------------
 ;;; Sandbox
-
-
-
-
-
 
 
 
