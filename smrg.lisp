@@ -251,12 +251,17 @@
           (doclib-path  (get-state obj :workdir)))
       (cond
 
-       ;; On first run, if drive letter is taken, display warning and return NIL.
+       ;; On first run, if drive letter is taken, ask if it's ok & return appropriate value.
        ((and first-run?
              (drive-connected-p drive-letter))
-        (progn (wg-msg (format nil "Hiba a dokumentumtár csatlakoztatásakor:~2%~
-A megadott betûjel (~a:) már foglalt, válasszon másikat!" drive-letter))
-          (return-from ensured nil)))
+        (let ((ok? (wg-confirm "Hiba a dokumentumtár csatlakoztatásakor:~2%~
+A megadott betûjel (~a:) már foglalt! Használja a csatlakoztatott mappát?" drive-letter)))
+          (cond (ok?
+                 (setf (get-state obj :first-run) nil)
+                 (return-from ensured t))
+                ((not ok?)
+                 (wg-msg "Adjon meg másik meghajtó betûjelet!")
+                 (return-from ensured nil)))))
 
        ;; Otherwise, on first run, take credentials & connect to doclib:
        (first-run?
@@ -322,7 +327,40 @@ csatlakozás bontása" drive-letter))
 
 
 ;; Hogyan derül ki, hogy a fájl amit éppen hozzáadunk az összegzéshez, meg van nyitva egy TK-s kollégánál?
+(defmethod merge-files ((obj wax-app))
+  (with-progress-new ("Aktuális fájlok egyesítése" obj :limit (length *tk-list*))
+    (catch 'merge-exit
+      (let* ((merge-date  (get-state obj :merge-date))
+             (output-file (concatenate 'string
+                                       (get-state obj :result)
+                                       merge-date
+                                       " Összesített bejelentések.xlsx"))
+             (infiles     (loop for tk in *tk-list* collecting
+                                (tk-pending-namestring obj (short-tk-name tk) merge-date
+                                                       :only-existing nil
+                                                       :only-on-existing-path nil))))
+;        (disp obj "Let's fook!~2%")
+        (join-worksheets infiles output-file obj :check-column 3 :width 30)
+#|                         :message-fn #'(lambda (&rest args)
+                                         (apply #'disp obj args))
+                         :step-fn #'(lambda (&rest args) (apply #'pstep obj args)))|#
+                                                                ))))
 
+(defun mt ()
+  (merge-files
+   (make-instance 'wax-app
+    :state `(
+;             :first-run  t
+;             :username   nil
+;             :workdir    ""
+;             :tkdirs     "TK-k"
+;             :template   "bejelentések.xlsx"
+;             :drive      "x"
+;             :archive    "Archív"
+             :result     "c:\\Users\\cselovszkid\\Desktop\\"
+             :merge-date "2026.07.14."
+;             :swap-date  "2026.07.15."
+             ))))
 
 ;;; ---------------------------------------------------------------
 ;;; Archive files
@@ -373,7 +411,9 @@ csatlakozás bontása" drive-letter))
                       (uiop:copy-file temp-file fresh-file)
                       (disp obj "Következõ napi állomány: ~a~%" fresh-file))
                     ;; TK path doesn't exist, display <none>.
-                    (disp obj "TK mappa hiányzik!~%")))))
+                    (disp obj "TK mappa hiányzik!~%")))
+                ;; Step progress bar.
+                (pstep obj)))
         ;; Delete temporary file.
         (delete-file temp-file)))))
 
@@ -432,16 +472,18 @@ csatlakozás bontása" drive-letter))
             :drive      "X"
             :archive    ""
             :result     ""
-            :merge-date ""
-            :swap-date  "")
+            :merge-date ,(date-string)
+            :swap-date  ,(date-string :day-offset 1))
    :execute-fn #'worker))
 
 
 (defun worker (obj command)
+;  (let ((command (first args)))
   (when (connection-ensured-p obj)
     (case command
-      (:merge   (wg-msg "Merge!"))
+      (:merge   (merge-files obj))
       (:archive (archive-and-refresh-files obj)))))
+;)
 
 
 (defun smrg-start ()
@@ -513,26 +555,26 @@ csatlakozás bontása" drive-letter))
         #'(lambda (interface)
             (declare (ignore interface))
             (save-state obj :keys *pkeys*)
-            (wax-execute obj t :merge)))
+            (wax-execute obj :errorsink-on t :args :merge)))
       "" ""
       " Feldolgozott állományok dátuma" ;  -----------------------------
       (wg-text-input 
        #'(lambda (text &rest rest)
            (declare (ignore rest))
-           (setf (get-state obj :template) text))
-       (date-string))
+           (setf (get-state obj :merge-date) text))
+       (get-state obj :merge-date))
       " Következõ napi dátum" ;  ---------------------------------------
       (wg-text-input 
        #'(lambda (text &rest rest)
            (declare (ignore rest))
-           (setf (get-state obj :template) text))
-       (date-string :day-offset 1))
+           (setf (get-state obj :swap-date) text))
+       (get-state obj :swap-date))
       ""
       (wg-button "Fájlok cseréje" ;  -----------------------------------
         #'(lambda (interface)
             (declare (ignore interface))
             (save-state obj :keys *pkeys*)
-            (wax-execute obj t :archive)))
+            (wax-execute obj :errorsink-on t :args :archive)))
       "" "")))
 
 

@@ -6,34 +6,28 @@
 
 (asdf:load-system "smrg")
 
-(lw:deliver 'smrg:run
-    "c:\\Users\\cselovszkid\\common-lisp\\smrg\\smrg.exe"
+(lw:deliver 'smrg:smrg-start
+    "c:\\Users\\cselovszkid\\common-lisp\\smrg\\smrg-v0.04.exe"
     5
-;    :console :io
+    :interface :capi
+    :console :io
     :multiprocessing t
-    :console t
+;    :console t
     :error-on-interpreted-functions t
     :keep-eval t
     :keep-lisp-reader t
     :symbol-names-action nil
     :startup-bitmap-file nil
-    :KILL-DSPEC-TABLE NIL
+    :kill-dspec-table nil
     :keep-package-manipulation t
-
-
     :keep-debug-mode t
-
-
-
-;    :compact t
-;    :keep-clos-object-printing t
-;    :keep-function-name t
-;    :keep-load-function t
-;    :keep-structure-info t
-;    :keep-top-level t
-;    :make-instance-keyword-check t
-;    :no-symbol-function-usage t
-;    :packages-to-keep-symbol-names t
-
-
+    :compact t
     )
+
+#|
+    :keep-symbols '(*appdir* *independent-exe*)
+    :packages-to-keep-externals '(smrg wax ccoffice) ; fn-s called indirectly - wax might not be needed, try without it!
+    :keep-function-name :all
+    :keep-conditions :all
+    :keep-load-function t
+|#
