@@ -96,14 +96,21 @@
 (defun the-now ()
   (adjust-timestamp (now) (offset :hour 2)))
 
-(defun date-string (&key (date nil) (day-offset 0))
-  (let ((date (if date
-                (parse-timestring date :date-separator #\.)
-                (the-now))))
-    (format-timestring
-     nil
-     (timestamp+ date day-offset :day)
-     :format '((:year 4) "." (:month 2) "." (:day 2) "."))))
+(defun skip-weekend (timestamp)
+  (if (member (timestamp-day-of-week timestamp) '(6 0))
+    (skip-weekend (timestamp+ timestamp 1 :day))
+    timestamp))
+
+(defun date-string (&key (date nil) (day-offset 0) (skip-weekend t))
+  (let* ((date     (if date
+                     (parse-timestring date :date-separator #\.)
+                     (the-now)))
+         (shifted  (timestamp+ date day-offset :day))
+         (shifted* (if skip-weekend
+                     (skip-weekend shifted)
+                     shifted)))
+    (format-timestring nil shifted*
+                       :format '((:year 4) "." (:month 2) "." (:day 2) "."))))
 
 (defun replaced-string (string)
   (coerce
@@ -112,6 +119,13 @@
 
 (defun valid-credential-p (cred)
   (and cred (stringp cred) (string/= cred "")))
+
+(defun paste-column (wsheet column start-row end-row value)
+  (let ((height (1+ (- end-row start-row))))
+    (setf (xrange wsheet column start-row column end-row)
+          (if (listp value)
+            (make-array `(,height 1) :initial-contents value)
+            (make-array `(,height 1) :initial-element value)))))
 
 
 ;;; ---------------------------------------------------------------
@@ -148,8 +162,7 @@
 
 (defmethod subdir-namestring ((obj wax-app))
   (concatenate 'string
-   (ensure-suffix "\\" (concatenate 'string (get-state obj :drive) ":"))
-   ))
+   (ensure-suffix "\\" (concatenate 'string (get-state obj :drive) ":"))))
 
 (defmethod template-namestring ((obj wax-app))
   (concatenate 'string
@@ -162,10 +175,35 @@
    (ensure-suffix "\\" (get-state obj :tkdirs))
    (ensure-suffix "\\" (short-tk-name tk-name))))
 
-(defmethod tk-archive-dir-namestring ((obj wax-app) tk-name)
+#|(defmethod tk-archive-dir-namestring ((obj wax-app) tk-name)
   (concatenate 'string
    (tk-dir-namestring obj tk-name)
-   (ensure-suffix "\\" (get-state obj :archive))))
+   (ensure-suffix "\\" (get-state obj :archive))))|#
+(defmethod tk-archive-dir-namestring ((obj wax-app) tk-name)
+  (concatenate 'string
+   (ensure-suffix "\\" (get-state obj :archives))
+   (ensure-suffix "\\" (short-tk-name tk-name))))
+
+
+(defun at ()
+  (let* ((obj
+          (make-instance
+           'wax-app
+           :state
+           `(:first-run  t
+             :username   nil
+             :workdir    ""
+             :tkdirs     "TK-k"
+             :template   ""
+             :drive      "X"
+             :archives   "\\\\kozpfs\\Org\\Jogi és Személyügyi Fõosztály\\Személyügyi Osztály\\CsD\\_arch_\\"
+             :result     ""
+             :merge-date "2026.07.23."
+             :swap-date  "2026.07.24.")))
+         (src (tk-archive-dir-namestring obj "Balatonfüredi Tankerületi Központ")))
+    (print (probe-file (pathname src)))
+    (uiop:copy-file (concatenate 'string src "x.txt")
+                    (concatenate 'string src "y.txt"))))
 
 
 ;;; ---------------------------------------------------------------
@@ -204,8 +242,9 @@
           (concatenate 'string
             path
             (date-string :date present-date) " "
-            (short-tk-name tk-name)
-            " bejelentések.xlsx")))
+            (short-tk-name tk-name) " "
+;            " Rendkívüli események jelentése.xlsx")))
+            (get-state obj :template))))
     (and
      ;; Existing file?
      (if only-existing
@@ -248,8 +287,13 @@
     (let ((first-run?   (get-state obj :first-run))
           (username     (get-state obj :username))
           (drive-letter (get-state obj :drive))
-          (doclib-path  (get-state obj :workdir)))
+          (doclib-path  (get-state obj :workdir))
+          (result       (get-state obj :result)))
       (cond
+       ;; If result directory doesn't exist, display warning & return NIL.
+       ((not (probe-file result))
+         (wg-msg "A megadott 'Eredmény helye' mappa nem található:~%~a" result)
+         (return-from ensured nil))
 
        ;; On first run, if drive letter is taken, ask if it's ok & return appropriate value.
        ((and first-run?
@@ -294,7 +338,7 @@ A megadott betûjel (~a:) már foglalt! Használja a csatlakoztatott mappát?" drive
             (setf (get-state obj :first-run) t)
             (connection-ensured-p obj)))
         ;; If connected path is not what was set, display warning, disconnect and return NIL.
-        (unless (string= doclib-path (drive-connected-to drive-letter))
+        (unless (string-equal doclib-path (drive-connected-to drive-letter))
           (wg-msg (format nil "Nem a megadott munkakönyvtár van csatlakoztatva a ~a: meghajtón,~
 csatlakozás bontása" drive-letter))
           (disconnect-drive drive-letter)
@@ -303,30 +347,10 @@ csatlakozás bontása" drive-letter))
         (return-from ensured t))))))
 
 
-(defun et ()
-  (connection-ensured-p
-   (make-instance 'wax-app :state
-    `(:first-run  t
-      :username   "cselovszkid"
-      :drive      "x"
-      :workdir    "\\\\sps.kk.gov.hu@SSL\\DavWWWRoot\\org\\jszf\\Megosztott dokumentumok\\Személyügyi Osztály\\smrg teszt"))))
-
-
-(defun connect-test ()
-  (connect-to-sharepoint-doclibrary
-   "x"
-   "\\\\sps.kk.gov.hu@SSL\\DavWWWRoot\\org\\jszf\\Megosztott dokumentumok\\Személyügyi Osztály\\smrg teszt"
-   "cselovszkid" "GeorgeLucas77?")
-;  (print (run-it (format nil "dir ~a:" (string-upcase *doclib-drive*))))
-;  (disconnect-drive *doclib-drive*)
-  )
-
-
 ;;; ---------------------------------------------------------------
 ;;; Merge files
 
 
-;; Hogyan derül ki, hogy a fájl amit éppen hozzáadunk az összegzéshez, meg van nyitva egy TK-s kollégánál?
 (defmethod merge-files ((obj wax-app))
   (with-progress-new ("Aktuális fájlok egyesítése" obj :limit (length *tk-list*))
     (catch 'merge-exit
@@ -334,48 +358,27 @@ csatlakozás bontása" drive-letter))
              (output-file (concatenate 'string
                                        (get-state obj :result)
                                        merge-date
-                                       " Összesített bejelentések.xlsx"))
+                                       " Összesített rendkívüli esemény jelentések.xlsx"))
              (infiles     (loop for tk in *tk-list* collecting
                                 (tk-pending-namestring obj (short-tk-name tk) merge-date
                                                        :only-existing nil
                                                        :only-on-existing-path nil))))
-;        (disp obj "Let's fook!~2%")
-        (join-worksheets infiles output-file obj :check-column 3 :width 30)
-#|                         :message-fn #'(lambda (&rest args)
-                                         (apply #'disp obj args))
-                         :step-fn #'(lambda (&rest args) (apply #'pstep obj args)))|#
-                                                                ))))
+        (join-worksheets infiles output-file obj :check-column 7 :width 16)
+        ;; Fixing numbering.
+        (with-local-copies ((outf/ output-file))
+          (with-workbook (:open outf/ :wsvars (outsheet) :save t)
+            (let ((last-row (find-last-row outsheet 2 2)))
+              (paste-column
+               outsheet 1 2 last-row
+               (loop for i from 1 upto (1- last-row) collecting
+                     (list (format nil "~a." i)))))))
+        ))))
 
-(defun mt ()
-  (merge-files
-   (make-instance 'wax-app
-    :state `(
-;             :first-run  t
-;             :username   nil
-;             :workdir    ""
-;             :tkdirs     "TK-k"
-;             :template   "bejelentések.xlsx"
-;             :drive      "x"
-;             :archive    "Archív"
-             :result     "c:\\Users\\cselovszkid\\Desktop\\"
-             :merge-date "2026.07.14."
-;             :swap-date  "2026.07.15."
-             ))))
 
 ;;; ---------------------------------------------------------------
 ;;; Archive files
 
 
-(defun paste-column (wsheet column start-row end-row value)
-  (let ((height (1+ (- end-row start-row))))
-    (setf (xrange wsheet column start-row column end-row)
-          (make-array `(,height 1) :initial-element value))))
-
-
-;; Hogyan derül ki, hogy a fájl amit éppen archiválunk, meg van nyitva egy TK-s kollégánál?
-;; Ha nyitva van, a RENAME-FILE simán átteszi az Archive mappába. Amikor a szerkesztõ fél
-;; ráment, az Excel kiírja hogy a megadott elérési út nem tallható, és felajánlja egy
-;; másolat mentését!
 (defmethod archive-and-refresh-files ((obj wax-app))
   (with-progress-new ("Korábbi táblázatok archiválása" obj :limit (length *tk-list*))
     (catch 'archive-exit
@@ -385,7 +388,7 @@ csatlakozás bontása" drive-letter))
         (uiop:copy-file (template-namestring obj) temp-file)
         (with-workbook (:wbook wbook :open temp-file :wsvars (wsheet))
           ;; Paste swap dates
-          (paste-column wsheet 1 2 51 swap-date)
+          (paste-column wsheet 4 2 181 swap-date)
           ;; Iterate of TKs.
           (loop for tk in *tk-list*
                 for short-tk    = (short-tk-name tk)
@@ -396,20 +399,32 @@ csatlakozás bontása" drive-letter))
                   ;; If there are files to archive, do them and display their names.
                   (loop for src in tk-expired
                         for dst in tk-archived doing
-                        (disp obj "~a.xlsx~%" (pathname-name src))
-                        (rename-file src dst))
+                        ;; Handling errors caused by expired file being edited.
+                        (multiple-value-bind (result condition)
+                            (ignore-errors (rename-file src dst) t)
+                          (declare (ignore result))
+                          (if (not condition)
+                            (disp obj "~a.xlsx~%" (pathname-name src))
+                            (let ((error-message
+                                   (format nil "Kezeletlen hiba a ~a.xlsx fájl archiválásakor!~%"
+                                           (pathname-name src))))
+                              (disp obj error-message)
+                              (wax::queue-errorlog obj error-message))
+                            )))
                   ;; Otherwise, display <none>.
                   (disp obj "<semmi>~%"))
                 ;; Create fresh file.
                 (let ((fresh-file (tk-pending-namestring obj short-tk swap-date)))
                   (if fresh-file
                     ;; TK path exists, go ahead
-                    (progn
-                      ;; Edit it in temp dir.
-                      (paste-column wsheet 2 2 51 tk)
-                      (!'save wbook)
-                      (uiop:copy-file temp-file fresh-file)
-                      (disp obj "Következõ napi állomány: ~a~%" fresh-file))
+                    (if (probe-file fresh-file)
+                      (disp obj "A következõ napi állomány már létezik, kihagyás.~%")
+                      (progn
+                        ;; Edit it in temp dir.
+                        (paste-column wsheet 2 2 181 (first (words tk)))
+                        (!'save wbook)
+                        (uiop:copy-file temp-file fresh-file)
+                        (disp obj "Következõ napi állomány létrehozva: ~a.xlsx~%" (pathname-name fresh-file))))
                     ;; TK path doesn't exist, display <none>.
                     (disp obj "TK mappa hiányzik!~%")))
                 ;; Step progress bar.
@@ -418,48 +433,11 @@ csatlakozás bontása" drive-letter))
         (delete-file temp-file)))))
 
 
-(defun st ()
-  (archive-and-refresh-files
-   (make-instance 'wax-app
-   :state `(
-            ;:first-run  t
-            ;:username   nil
-            ;:workdir    ""
-            :tkdirs     "TK-k"
-            :template   "bejelentések.xlsx"
-            :drive      "x"
-            :archive    "Archív"
-            ;:result     ""
-            :merge-date "2026.07.14."
-            :swap-date  "2026.07.15."
-            ))))
-
-(defun tt ()
-  (let ((obj (make-instance 'wax-app
-              :state `(:workdir  "Users\\cselovszkid\\Downloads\\smrg-teszt\\"
-                       :tkdirs   "TK-k\\"
-                       :template "bejelentések.xlsx"
-                       :drive    "c"
-                       :archive  "Archív\\"))))
-    (print (subdir-namestring obj))
-    (print (template-namestring obj))
-    (print (tk-dir-namestring obj "Közép-Pesti Tank.Közp"))
-    (print (tk-archive-dir-namestring obj "Veszprémi TK"))
-    (print (tk-pending-namestring obj "Miskolci Tankerületi Központ" "2026.07.14"))
-    (print (tk-pending-namestring obj "Balassagyarmati Tankerületi Központ" "2026.07.14"))
-    (let ((expired (tk-expired-namestrings obj "Balassagyarmati" "2026.07.15")))
-      (pprint expired)
-      (pprint (tk-archived-namestrings obj expired "Balassagyarmati TK")))
-    (print (tk-foreign-namestrings obj "Balassagyarmati"))
-    ))
-
-
-
 ;;; ---------------------------------------------------------------
 ;;; Main
 
 
-(defparameter *pkeys* '(:username :workdir :tkdirs :template :drive :archive :result))
+(defparameter *pkeys* '(:username :workdir :tkdirs :template :drive :archives :result))
 
 
 (defun init-app ()
@@ -470,112 +448,118 @@ csatlakozás bontása" drive-letter))
             :tkdirs     ""
             :template   ""
             :drive      "X"
-            :archive    ""
+            :archives   ""
             :result     ""
             :merge-date ,(date-string)
-            :swap-date  ,(date-string :day-offset 1))
+            :swap-date  ,(date-string :day-offset 1 :skip-weekend t))
    :execute-fn #'worker))
 
 
 (defun worker (obj command)
-;  (let ((command (first args)))
   (when (connection-ensured-p obj)
     (case command
       (:merge   (merge-files obj))
       (:archive (archive-and-refresh-files obj)))))
-;)
 
 
 (defun smrg-start ()
   (in-package :smrg)
+  (uiop:setup-temporary-directory) ; Without this, UIOP would use the tempdir of the build system.
   (let ((obj (init-app)))
     ;; Initialize app state  -------------------------------------------
     (load-state obj :keys *pkeys*)
     ;; GUI  ------------------------------------------------------------
-    (wg-window `(:title "Rendkívüli esemény értesítõk összegzése"
+    (wg-window `(:title "Rendkívüli esemény jelentések összegzése"
                  :best-width 700
                  :max-height 80
-                 :confirm-destroy-function ,#'(lambda (&rest rest)
-                                                (declare (ignore rest))
-                                                (let ((drive-letter (get-state obj :drive)))
-                                                  (when (and drive-letter
-                                                             (stringp drive-letter)
-                                                             (drive-connected-p drive-letter))
-                                                    (disconnect-drive drive-letter)
-                                                    (wg-msg (format
-                                                             nil "Kapcsolat bontva a dokumentumtárral (~a:)."
-                                                             drive-letter))))
-                                                t))
+                 :confirm-destroy-function
+                 ,#'(lambda (&rest rest)
+                      (declare (ignore rest))
+                      (let ((drive-letter (get-state obj :drive)))
+                        (when (and drive-letter
+                                   (stringp drive-letter)
+                                   (drive-connected-p drive-letter))
+                          (disconnect-drive drive-letter)
+                          (wg-msg (format
+                                   nil "Kapcsolat bontva a dokumentumtárral (~a:)."
+                                   drive-letter))))
+                      t))
+               
+               "" ""
+               " KLIK felhasználónév" ;  ----------------------------------
+               (wg-text-input 
+                #'(lambda (text &rest rest)
+                    (declare (ignore rest))
+                    (setf (get-state obj :username) text))
+                (get-state obj :username))
+               " Csatolt meghajtó betûjele" ;  ----------------------------------
+               (wg-text-input 
+                #'(lambda (text &rest rest)
+                    (declare (ignore rest))
+                    (setf (get-state obj :drive) text))
+                (get-state obj :drive))
+               " Munkakönyvtár a dokumentumtárban" ;  ---------------------------
+               (wg-text-input 
+                #'(lambda (text &rest rest)
+                    (declare (ignore rest))
+                    (setf (get-state obj :workdir) text))
+                (get-state obj :workdir))
+               " TK könyvtárak" ;  ----------------------------------------------
+               (wg-text-input 
+                #'(lambda (text &rest rest)
+                    (declare (ignore rest))
+                    (setf (get-state obj :tkdirs) text))
+                (get-state obj :tkdirs))
 
-      "" ""
-      " KLIK felhasználónév" ;  ----------------------------------
-      (wg-text-input 
-       #'(lambda (text &rest rest)
-           (declare (ignore rest))
-           (setf (get-state obj :username) text))
-       (get-state obj :username))
-      " Csatolt meghajtó betûjele" ;  ----------------------------------
-      (wg-text-input 
-       #'(lambda (text &rest rest)
-           (declare (ignore rest))
-           (setf (get-state obj :drive) text))
-       (get-state obj :drive))
-      " Munkakönyvtár a dokumentumtárban" ;  ---------------------------
-      (wg-text-input 
-       #'(lambda (text &rest rest)
-           (declare (ignore rest))
-           (setf (get-state obj :workdir) text))
-       (get-state obj :workdir))
-      " TK könyvtárak" ;  ----------------------------------------------
-      (wg-text-input 
-       #'(lambda (text &rest rest)
-           (declare (ignore rest))
-           (setf (get-state obj :tkdirs) text))
-       (get-state obj :tkdirs))
-      " Archív alkönyvtárak" ;  ----------------------------------------
-      (wg-text-input 
-       #'(lambda (text &rest rest)
-           (declare (ignore rest))
-           (setf (get-state obj :archive) text))
-       (get-state obj :archive))
-      " Táblázat sablon" ;  --------------------------------------------
-      (wg-text-input 
-       #'(lambda (text &rest rest)
-           (declare (ignore rest))
-           (setf (get-state obj :template) text))
-       (get-state obj :template))
-      " Eredmény helye" ;  ---------------------------------------------
-      (wg-text-input 
-       #'(lambda (text &rest rest)
-           (declare (ignore rest))
-           (setf (get-state obj :result) text))
-       (get-state obj :result))
-      ""
-      (wg-button "Összeolvasás" ;  -------------------------------------
-        #'(lambda (interface)
-            (declare (ignore interface))
-            (save-state obj :keys *pkeys*)
-            (wax-execute obj :errorsink-on t :args :merge)))
-      "" ""
-      " Feldolgozott állományok dátuma" ;  -----------------------------
-      (wg-text-input 
-       #'(lambda (text &rest rest)
-           (declare (ignore rest))
-           (setf (get-state obj :merge-date) text))
-       (get-state obj :merge-date))
-      " Következõ napi dátum" ;  ---------------------------------------
-      (wg-text-input 
-       #'(lambda (text &rest rest)
-           (declare (ignore rest))
-           (setf (get-state obj :swap-date) text))
-       (get-state obj :swap-date))
-      ""
-      (wg-button "Fájlok cseréje" ;  -----------------------------------
-        #'(lambda (interface)
-            (declare (ignore interface))
-            (save-state obj :keys *pkeys*)
-            (wax-execute obj :errorsink-on t :args :archive)))
-      "" "")))
+
+
+               " Archívum helye" ;  ----------------------------------------
+               (wg-text-input 
+                #'(lambda (text &rest rest)
+                    (declare (ignore rest))
+                    (setf (get-state obj :archives) text))
+                (get-state obj :archives))
+
+
+
+               " Táblázat sablon" ;  --------------------------------------------
+               (wg-text-input 
+                #'(lambda (text &rest rest)
+                    (declare (ignore rest))
+                    (setf (get-state obj :template) text))
+                (get-state obj :template))
+               " Eredmény helye" ;  ---------------------------------------------
+               (wg-text-input 
+                #'(lambda (text &rest rest)
+                    (declare (ignore rest))
+                    (setf (get-state obj :result) text))
+                (get-state obj :result))
+               ""
+               (wg-button "Összeolvasás" ;  -------------------------------------
+                          #'(lambda (interface)
+                              (declare (ignore interface))
+                              (save-state obj :keys *pkeys*)
+                              (wax-execute obj :errorsink-on t :args :merge)))
+               "" ""
+               " Feldolgozott állományok dátuma" ;  -----------------------------
+               (wg-text-input 
+                #'(lambda (text &rest rest)
+                    (declare (ignore rest))
+                    (setf (get-state obj :merge-date) text))
+                (get-state obj :merge-date))
+               " Következõ napi dátum" ;  ---------------------------------------
+               (wg-text-input 
+                #'(lambda (text &rest rest)
+                    (declare (ignore rest))
+                    (setf (get-state obj :swap-date) text))
+                (get-state obj :swap-date))
+               ""
+               (wg-button "Fájlok cseréje" ;  -----------------------------------
+                          #'(lambda (interface)
+                              (declare (ignore interface))
+                              (save-state obj :keys *pkeys*)
+                              (wax-execute obj :errorsink-on t :args :archive)))
+               "" "")))
 
 
 ;;; ---------------------------------------------------------------
