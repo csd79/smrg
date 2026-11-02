@@ -7,7 +7,7 @@
 (in-package "SMRG")
 (setf *independent-exe* t)
 (lw:deliver 'smrg:smrg-start
-    "c:\\Users\\cselovszkid\\common-lisp\\smrg\\smrg-v0.06.exe"
+    "c:\\Users\\cselovszkid\\common-lisp\\smrg\\smrg-v0.07.exe"
     5
     :keep-symbols '(*appdir* *independent-exe*)
     :interface :capi
