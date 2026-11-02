@@ -1,0 +1,27 @@
+Args fájlba: csere és csere fátum megjelenjen -e a guin?
+Ha csak betekintünk, akkor nem kellenek.
+
+
+
+Összerakáskor írja ki ha egy fájlban van rossz dátumú sor
+
+Összeolvasás végén lehetne egy sor, hogy a megadott dátummal n fájlból m sor jött össze.
+Azt is nézze, jó dátumú fájlokból hány rossz dátumú sor lett
+
+Cserekor figyelhetne bizonyos eseteket:
+- dátumok nagyon eltérnek: biztos?
+- mai dátum üres vagy nem értelmethető: nem lesz archiválás, biztos?
+- holnapi dátum -“-
+
+Archiválás közben figyelmeztessen ha korábbi dátumú fájlt rak el
+
+Csere végén is lehetne összefoglalás: hány fájl…
+Azt is írja ki, hány korábbi dátumú fájl lett elrakva
+
+Kéne még egy mező guira: hosszú távú összesítő.
+Ez egy olyan fájl, aminek a végére minden összeolvasás után odaírhatjuk a mai eredményt, HA AKARJUK.
+Ha napjában többször összesítünk, csak az utolsónál kell.
+Betekintők nem!
+
+Ahol van értelme, a gui mező legyen fájl/mappaválasztó. 
+Ahol doktár helyet választhatunk, ajánlja fel előbb a csatlakozást ha még nincs, és az esetben a csatolt driveról induljon a vàlsdztás

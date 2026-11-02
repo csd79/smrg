@@ -3,7 +3,7 @@
 (defsystem "smrg"
   :description    "Merging spreadsheets on a SharPoint doc library"
   :author         "Denes Cselovszki <denes.cselovszki@gmail.com>"
-  :version        "0.05"
+  :version        "0.06"
   :depends-on     ("utils" "ccom4" "ccoffice" "cl-ppcre" "achar" "wax" "str" "local-time" "splt")
   :serial         t
   :around-compile (lambda (next)
