@@ -10,7 +10,7 @@
 
 Archiváláskor minden fájl átmozgatásra kerül aminek a dátuma nem "Következő napi dátum". Ha egy azonos nevű fájl már létezik az archív mappában, akkor felülírásra kerül.
 
-Az előbbiekből következik hogy korábbi dátumú kallódó fájlok (amelyek valamiért a SharePoint Tk mappában maradtak) nem fognak bekerülni későbbi dátumú összeolvasásba, viszont a következő fájlcserekor archiválódnak.
+Az előbbiekből következik hogy korábbi dátumú kallódó fájlok (amelyek valamiért a SharePoint TK mappában maradtak) nem fognak bekerülni későbbi dátumú összeolvasásba, viszont a következő fájlcserekor archiválódnak.
 
 A sablon engedélyei nem lehetnek egyediek, különben a TK-s ügyintézők nem fogják látni a napi fájlokat.
 
